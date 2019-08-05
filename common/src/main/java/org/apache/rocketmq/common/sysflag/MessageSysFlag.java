@@ -23,6 +23,7 @@ public class MessageSysFlag {
     public final static int TRANSACTION_PREPARED_TYPE = 0x1 << 2;
     public final static int TRANSACTION_COMMIT_TYPE = 0x2 << 2;
     public final static int TRANSACTION_ROLLBACK_TYPE = 0x3 << 2;
+    public final static int DELAY_MESSAGE_TYPE = 0x1 << 4;
 
     public static int getTransactionValue(final int flag) {
         return flag & TRANSACTION_ROLLBACK_TYPE;
@@ -34,5 +35,9 @@ public class MessageSysFlag {
 
     public static int clearCompressedFlag(final int flag) {
         return flag & (~COMPRESSED_FLAG);
+    }
+
+    public static boolean isDelayMessage(final int flag) {
+        return (flag & DELAY_MESSAGE_TYPE) == DELAY_MESSAGE_TYPE;
     }
 }

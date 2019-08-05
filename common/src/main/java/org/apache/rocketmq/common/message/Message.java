@@ -17,10 +17,7 @@
 package org.apache.rocketmq.common.message;
 
 import java.io.Serializable;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 public class Message implements Serializable {
     private static final long serialVersionUID = 8445773977080406428L;
@@ -145,8 +142,41 @@ public class Message implements Serializable {
         return 0;
     }
 
+    /**
+     * @return delayDateTime Unit is seconds
+     */
+    public int getDelayAbsTime() {
+        String delayTime = this.getProperty(MessageConst.PROPERTY_DELAY_ABS_TIME);
+        if (delayTime != null) {
+            try {
+                return Integer.valueOf(delayTime);
+            } catch (Exception e) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    @Deprecated
     public void setDelayTimeLevel(int level) {
         this.putProperty(MessageConst.PROPERTY_DELAY_TIME_LEVEL, String.valueOf(level));
+    }
+
+    /**
+     * Minimum accuracy is seconds
+     * @param delayTime Unit is seconds
+     */
+    public void setDelayTime(int delayTime) {
+        Date date = new Date((System.currentTimeMillis()) + (delayTime * 1000));
+        setDelayDate(date);
+    }
+
+    /**
+     * Minimum accuracy is seconds
+     * @param date The execution date of the message
+     */
+    public void setDelayDate(Date date) {
+        this.putProperty(MessageConst.PROPERTY_DELAY_ABS_TIME, String.valueOf(date.getTime() / 1000));
     }
 
     public boolean isWaitStoreMsgOK() {

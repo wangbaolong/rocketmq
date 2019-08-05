@@ -82,6 +82,8 @@ public class MessageStoreConfig {
     private int putMsgIndexHightWater = 600000;
     // The maximum size of a single log file,default is 512K
     private int maxMessageSize = 1024 * 1024 * 4;
+    // The maximum size of delay message
+    private int maxDelayMessageSize = 1024 * 64;
     // Whether check the CRC32 of the records consumed.
     // This ensures no on-the-wire or on-disk corruption to the messages occurred.
     // This check adds some overhead,so it may be disabled in cases seeking extreme performance.
@@ -268,6 +270,14 @@ public class MessageStoreConfig {
 
     public void setMaxMessageSize(int maxMessageSize) {
         this.maxMessageSize = maxMessageSize;
+    }
+
+    public int getMaxDelayMessageSize() {
+        return maxDelayMessageSize;
+    }
+
+    public void setMaxDelayMessageSize(int maxDelayMessageSize) {
+        this.maxDelayMessageSize = maxDelayMessageSize;
     }
 
     public boolean isCheckCRCOnRecover() {

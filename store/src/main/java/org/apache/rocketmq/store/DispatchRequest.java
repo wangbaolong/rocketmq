@@ -37,6 +37,9 @@ public class DispatchRequest {
 
     private int bufferSize = -1;//the buffer size maybe larger than the msg size if the message is wrapped by something
 
+    private byte[] body;
+    private boolean isDelay;
+
     public DispatchRequest(
         final String topic,
         final int queueId,
@@ -49,7 +52,9 @@ public class DispatchRequest {
         final String uniqKey,
         final int sysFlag,
         final long preparedTransactionOffset,
-        final Map<String, String> propertiesMap
+        final Map<String, String> propertiesMap,
+        final byte[] body,
+        final boolean isDelay
     ) {
         this.topic = topic;
         this.queueId = queueId;
@@ -65,6 +70,40 @@ public class DispatchRequest {
         this.preparedTransactionOffset = preparedTransactionOffset;
         this.success = true;
         this.propertiesMap = propertiesMap;
+        this.body = body;
+        this.isDelay = isDelay;
+    }
+
+    public DispatchRequest(
+            final String topic,
+            final int queueId,
+            final long commitLogOffset,
+            final int msgSize,
+            final long tagsCode,
+            final long storeTimestamp,
+            final long consumeQueueOffset,
+            final String keys,
+            final String uniqKey,
+            final int sysFlag,
+            final long preparedTransactionOffset,
+            final Map<String, String> propertiesMap
+    ) {
+        this(
+                topic,
+                queueId,
+                commitLogOffset,
+                msgSize,
+                tagsCode,
+                storeTimestamp,
+                consumeQueueOffset,
+                keys,
+                uniqKey,
+                sysFlag,
+                preparedTransactionOffset,
+                propertiesMap,
+                null,
+                false
+        );
     }
 
     public DispatchRequest(int size) {
@@ -169,5 +208,9 @@ public class DispatchRequest {
 
     public void setBufferSize(int bufferSize) {
         this.bufferSize = bufferSize;
+    }
+
+    public boolean isDelay() {
+        return isDelay;
     }
 }

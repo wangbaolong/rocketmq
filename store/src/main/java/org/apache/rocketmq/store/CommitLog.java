@@ -76,7 +76,8 @@ public class CommitLog {
 
         this.commitLogService = new CommitRealTimeService();
 
-        this.appendMessageCallback = new DefaultAppendMessageCallback(defaultMessageStore.getMessageStoreConfig().getMaxMessageSize());
+        this.appendMessageCallback = new DefaultAppendMessageCallback(defaultMessageStore.getMessageStoreConfig().getMaxMessageSize(),
+                defaultMessageStore.getMessageStoreConfig().getMaxDelayMessageSize());
         batchEncoderThreadLocal = new ThreadLocal<MessageExtBatchEncoder>() {
             @Override
             protected MessageExtBatchEncoder initialValue() {
@@ -268,6 +269,8 @@ public class CommitLog {
 
             int sysFlag = byteBuffer.getInt();
 
+            boolean isDelay = MessageSysFlag.isDelayMessage(sysFlag);
+
             long bornTimeStamp = byteBuffer.getLong();
 
             ByteBuffer byteBuffer1 = byteBuffer.get(bytesContent, 0, 8);
@@ -281,10 +284,14 @@ public class CommitLog {
             long preparedTransactionOffset = byteBuffer.getLong();
 
             int bodyLen = byteBuffer.getInt();
+            byte[] body = null;
             if (bodyLen > 0) {
-                if (readBody) {
+                if (readBody || isDelay) {
                     byteBuffer.get(bytesContent, 0, bodyLen);
-
+                    if (isDelay) {
+                        body = new byte[bodyLen];
+                        System.arraycopy(bytesContent, 0, body, 0, bodyLen);
+                    }
                     if (checkCRC) {
                         int crc = UtilAll.crc32(bytesContent, 0, bodyLen);
                         if (crc != bodyCRC) {
@@ -351,7 +358,6 @@ public class CommitLog {
                     totalSize, readLength, bodyLen, topicLen, propertiesLength);
                 return new DispatchRequest(totalSize, false/* success */);
             }
-
             return new DispatchRequest(
                 topic,
                 queueId,
@@ -364,7 +370,9 @@ public class CommitLog {
                 uniqKey,
                 sysFlag,
                 preparedTransactionOffset,
-                propertiesMap
+                propertiesMap,
+                isDelay ? body : null,
+                isDelay
             );
         } catch (Exception e) {
         }
@@ -551,14 +559,37 @@ public class CommitLog {
         if (tranType == MessageSysFlag.TRANSACTION_NOT_TYPE
             || tranType == MessageSysFlag.TRANSACTION_COMMIT_TYPE) {
             // Delay Delivery
-            if (msg.getDelayTimeLevel() > 0) {
-                if (msg.getDelayTimeLevel() > this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel()) {
-                    msg.setDelayTimeLevel(this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel());
+//            if (msg.getDelayTimeLevel() > 0) {
+//                if (msg.getDelayTimeLevel() > this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel()) {
+//                    msg.setDelayTimeLevel(this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel());
+//                }
+//
+//                topic = ScheduleMessageService.SCHEDULE_TOPIC;
+//                queueId = ScheduleMessageService.delayLevel2QueueId(msg.getDelayTimeLevel());
+//
+//                // Backup real topic, queueId
+//                MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_TOPIC, msg.getTopic());
+//                MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_QUEUE_ID, String.valueOf(msg.getQueueId()));
+//                msg.setPropertiesString(MessageDecoder.messageProperties2String(msg.getProperties()));
+//
+//                msg.setTopic(topic);
+//                msg.setQueueId(queueId);
+//            }
+            boolean isDelay = false;
+            if (msg.getDelayAbsTime() > 0) {
+                int currentTime = (int) (System.currentTimeMillis() / 1000);
+                if (msg.getDelayAbsTime() > currentTime) {
+                    isDelay = true;
+                    topic = ScheduleMessageService.SCHEDULE_TOPIC;
+                    queueId = msg.getDelayAbsTime();
                 }
-
+            } else if (msg.getDelayTimeLevel() > 0) {
+                isDelay = true;
+                int delayTimeLevel = Math.min(msg.getDelayTimeLevel(), this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel());
                 topic = ScheduleMessageService.SCHEDULE_TOPIC;
-                queueId = ScheduleMessageService.delayLevel2QueueId(msg.getDelayTimeLevel());
-
+                queueId = (int) (defaultMessageStore.getScheduleMessageService().computeDeliverTimestamp(delayTimeLevel, System.currentTimeMillis()) / 1000);
+            }
+            if (isDelay) {
                 // Backup real topic, queueId
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_TOPIC, msg.getTopic());
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_QUEUE_ID, String.valueOf(msg.getQueueId()));
@@ -566,6 +597,9 @@ public class CommitLog {
 
                 msg.setTopic(topic);
                 msg.setQueueId(queueId);
+                // set delay message flag
+                int sysFlag = msg.getSysFlag();
+                msg.setSysFlag(sysFlag | MessageSysFlag.DELAY_MESSAGE_TYPE);
             }
         }
 
@@ -1174,6 +1208,8 @@ public class CommitLog {
         private final ByteBuffer msgStoreItemMemory;
         // The maximum length of the message
         private final int maxMessageSize;
+        // The maximum length of the delay message
+        private final int maxDelayMessageSize;
         // Build Message Key
         private final StringBuilder keyBuilder = new StringBuilder();
 
@@ -1181,10 +1217,11 @@ public class CommitLog {
 
         private final ByteBuffer hostHolder = ByteBuffer.allocate(8);
 
-        DefaultAppendMessageCallback(final int size) {
+        DefaultAppendMessageCallback(final int size, final int maxDelayMessageSize) {
             this.msgIdMemory = ByteBuffer.allocate(MessageDecoder.MSG_ID_LENGTH);
             this.msgStoreItemMemory = ByteBuffer.allocate(size + END_FILE_MIN_BLANK_LENGTH);
             this.maxMessageSize = size;
+            this.maxDelayMessageSize = maxDelayMessageSize;
         }
 
         public ByteBuffer getMsgStoreItemMemory() {
@@ -1252,6 +1289,14 @@ public class CommitLog {
             if (msgLen > this.maxMessageSize) {
                 CommitLog.log.warn("message size exceeded, msg total size: " + msgLen + ", msg body size: " + bodyLength
                     + ", maxMessageSize: " + this.maxMessageSize);
+                return new AppendMessageResult(AppendMessageStatus.MESSAGE_SIZE_EXCEEDED);
+            }
+
+            // Exceeds the maximum delay message
+            String topic = new String(topicData, 0, topicLength, MessageDecoder.CHARSET_UTF8);
+            if (ScheduleMessageService.SCHEDULE_TOPIC.equals(topic) && msgLen > this.maxDelayMessageSize) {
+                CommitLog.log.warn("message size exceeded, msg total size: " + msgLen + ", msg body size: " + bodyLength
+                        + ", maxMessageSize: " + this.maxMessageSize);
                 return new AppendMessageResult(AppendMessageStatus.MESSAGE_SIZE_EXCEEDED);
             }
 

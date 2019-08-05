@@ -52,6 +52,7 @@ import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.store.config.BrokerRole;
 import org.apache.rocketmq.store.config.MessageStoreConfig;
 import org.apache.rocketmq.store.config.StorePathConfigHelper;
+import org.apache.rocketmq.store.delay.DelayMessageManager;
 import org.apache.rocketmq.store.dledger.DLedgerCommitLog;
 import org.apache.rocketmq.store.ha.HAService;
 import org.apache.rocketmq.store.index.IndexService;
@@ -111,6 +112,8 @@ public class DefaultMessageStore implements MessageStore {
 
     boolean shutDownNormal = false;
 
+    private CommitLogDispatcher commitLogDispatcherDelayQueue;
+
     public DefaultMessageStore(final MessageStoreConfig messageStoreConfig, final BrokerStatsManager brokerStatsManager,
         final MessageArrivingListener messageArrivingListener, final BrokerConfig brokerConfig) throws IOException {
         this.messageArrivingListener = messageArrivingListener;
@@ -152,6 +155,7 @@ public class DefaultMessageStore implements MessageStore {
         this.dispatcherList = new LinkedList<>();
         this.dispatcherList.addLast(new CommitLogDispatcherBuildConsumeQueue());
         this.dispatcherList.addLast(new CommitLogDispatcherBuildIndex());
+        this.commitLogDispatcherDelayQueue = new CommitLogDispatcherBuildDelayQueue();
 
         File file = new File(StorePathConfigHelper.getLockFile(messageStoreConfig.getStorePathRootDir()));
         MappedFile.ensureDirOK(file.getParent());
@@ -1417,6 +1421,10 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     public void doDispatch(DispatchRequest req) {
+        if (req.isDelay()) {
+            commitLogDispatcherDelayQueue.dispatch(req);
+            return;
+        }
         for (CommitLogDispatcher dispatcher : this.dispatcherList) {
             dispatcher.dispatch(req);
         }
@@ -1500,6 +1508,22 @@ public class DefaultMessageStore implements MessageStore {
             if (DefaultMessageStore.this.messageStoreConfig.isMessageIndexEnable()) {
                 DefaultMessageStore.this.indexService.buildIndex(request);
             }
+        }
+    }
+
+    class CommitLogDispatcherBuildDelayQueue implements CommitLogDispatcher {
+
+        private DelayMessageManager delayMessageManager;
+        private CommitLogDispatcherBuildDelayQueue() {
+            delayMessageManager = new DelayMessageManager(DefaultMessageStore.this);
+        }
+
+        @Override
+        public void dispatch(DispatchRequest request) {
+            log.info("CommitLogDispatcherBuildDelayQueue dispatch");
+            log.error("CommitLogDispatcherBuildDelayQueue dispatch");
+            // TODO 将消息加入到DelayQueue
+            delayMessageManager.putDelayMessage(request);
         }
     }
 
