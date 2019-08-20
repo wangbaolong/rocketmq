@@ -56,4 +56,8 @@ public class StorePathConfigHelper {
         return rootDir + File.separator + "transaction" + File.separator + "redolog";
     }
 
+    public static String getStorePathDelayMessageQueue(final String rootDir) {
+        return rootDir + File.separator + "consumequeue" + File.separator + "delaymessage";
+    }
+
 }

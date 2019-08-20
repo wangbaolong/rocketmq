@@ -36,6 +36,7 @@ import org.apache.rocketmq.common.message.MessageExtBatch;
 import org.apache.rocketmq.common.sysflag.MessageSysFlag;
 import org.apache.rocketmq.store.config.BrokerRole;
 import org.apache.rocketmq.store.config.FlushDiskType;
+import org.apache.rocketmq.store.delay.DelayMessageDispatchRequest;
 import org.apache.rocketmq.store.ha.HAService;
 import org.apache.rocketmq.store.schedule.ScheduleMessageService;
 
@@ -274,11 +275,19 @@ public class CommitLog {
             long bornTimeStamp = byteBuffer.getLong();
 
             ByteBuffer byteBuffer1 = byteBuffer.get(bytesContent, 0, 8);
-
+            byte[] bornHost = null;
+            if (isDelay) {
+                bornHost = new byte[8];
+                System.arraycopy(bytesContent, 0, bornHost, 0, 8);
+            }
             long storeTimestamp = byteBuffer.getLong();
 
             ByteBuffer byteBuffer2 = byteBuffer.get(bytesContent, 0, 8);
-
+            byte[] storeHost = null;
+            if (isDelay) {
+                storeHost = new byte[8];
+                System.arraycopy(bytesContent, 0, bornHost, 0, 8);
+            }
             int reconsumeTimes = byteBuffer.getInt();
 
             long preparedTransactionOffset = byteBuffer.getLong();
@@ -358,22 +367,44 @@ public class CommitLog {
                     totalSize, readLength, bodyLen, topicLen, propertiesLength);
                 return new DispatchRequest(totalSize, false/* success */);
             }
-            return new DispatchRequest(
-                topic,
-                queueId,
-                physicOffset,
-                totalSize,
-                tagsCode,
-                storeTimestamp,
-                queueOffset,
-                keys,
-                uniqKey,
-                sysFlag,
-                preparedTransactionOffset,
-                propertiesMap,
-                isDelay ? body : null,
-                isDelay
-            );
+            if (isDelay) {
+                return new DelayMessageDispatchRequest(
+                        topic,
+                        queueId,
+                        physicOffset,
+                        totalSize,
+                        tagsCode,
+                        storeTimestamp,
+                        queueOffset,
+                        keys,
+                        uniqKey,
+                        sysFlag,
+                        preparedTransactionOffset,
+                        propertiesMap,
+                        bodyCRC,
+                        flag,
+                        bornTimeStamp,
+                        bornHost,
+                        storeHost,
+                        reconsumeTimes,
+                        body
+                );
+            } else {
+                return new DispatchRequest(
+                        topic,
+                        queueId,
+                        physicOffset,
+                        totalSize,
+                        tagsCode,
+                        storeTimestamp,
+                        queueOffset,
+                        keys,
+                        uniqKey,
+                        sysFlag,
+                        preparedTransactionOffset,
+                        propertiesMap
+                );
+            }
         } catch (Exception e) {
         }
 

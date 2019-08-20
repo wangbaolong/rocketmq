@@ -1,28 +1,35 @@
 package org.apache.rocketmq.store.delay;
 
+import org.apache.rocketmq.common.constant.LoggerName;
+import org.apache.rocketmq.logging.InternalLogger;
+import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.store.DefaultMessageStore;
-import org.apache.rocketmq.store.DispatchRequest;
 import org.apache.rocketmq.store.MessageExtBrokerInner;
 import org.apache.rocketmq.store.PutMessageResult;
 
 public class DelayMessageManager {
 
+    private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.DELAY_MESSAGE_LOGGER_NAME);
+
     private TimingWheel timingWheel;
     private DelayMessageStore delayMessageStore;
+    private LoadMessageManager loadMessageManager;
     private DefaultMessageStore defaultMessageStore;
 
     public DelayMessageManager(DefaultMessageStore defaultMessageStore) {
         this.defaultMessageStore = defaultMessageStore;
+        this.delayMessageStore = new DelayMessageStore(defaultMessageStore);
+        this.loadMessageManager = new LoadMessageManager(delayMessageStore);
         timingWheel = new TimingWheel(1000,
                 5400,
-                System.currentTimeMillis(),
+                loadMessageManager,
                 new DefaultReputExpiredMessageCallback());
-        delayMessageStore = new DelayMessageStore();
     }
 
-    public boolean putDelayMessage(DispatchRequest req) {
-        DelayMessageStoreResult result = delayMessageStore.putDelayMessage(req);
-        DelayMessageInner delayMessage = new DelayMessageInner(result.getTopic(),
+    public boolean putDelayMessage(DelayMessageDispatchRequest req) {
+        delayMessageStore.putMessage(req);
+        DelayMessageStoreResult result = delayMessageStore.putMessage(req);
+        DelayMessageInner delayMessage = new DelayMessageInner(
                 result.getQueueId() * 1000,
                 result.getQueueffset(),
                 result.getSize());
@@ -30,7 +37,7 @@ public class DelayMessageManager {
         return true;
     }
 
-    private class DefaultReputExpiredMessageCallback implements TimingWheel.ReputExpiredMessageCallback {
+    private class DefaultReputExpiredMessageCallback implements ReputExpiredMessageCallback {
 
         @Override
         public void callback(DelayMessageInner msg) {

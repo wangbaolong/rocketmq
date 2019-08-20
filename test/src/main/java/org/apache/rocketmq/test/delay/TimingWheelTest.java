@@ -4,6 +4,7 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.store.delay.DelayMessageInner;
+import org.apache.rocketmq.store.delay.ReputExpiredMessageCallback;
 import org.apache.rocketmq.store.delay.TimingWheel;
 
 public class TimingWheelTest {
@@ -14,11 +15,10 @@ public class TimingWheelTest {
         long currentTime = System.currentTimeMillis();
         TimingWheel timingWheel = new TimingWheel(1000,
                 5400,
-                currentTime,
-                new TimingWheel.ReputExpiredMessageCallback() {
+                null,
+                new ReputExpiredMessageCallback(){
                     @Override
                     public void callback(DelayMessageInner msg) {
-//                        System.out.println("expirationMs:" + msg.getExpirationMs() + "  currentMillTime:" + System.currentTimeMillis());
                         log.info("ReputExpiredMessageCallback callback expirationMs:" + msg.getExpirationMs() + "  currentMillTime:" + System.currentTimeMillis());
                     }
                 });

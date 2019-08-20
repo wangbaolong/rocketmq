@@ -4,6 +4,7 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 
+import java.util.Calendar;
 import java.util.Iterator;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -21,36 +22,43 @@ public class TimingWheel {
     private long currentTime;
     private long startMs;
     private TimingWheelBucket[] buckets;
-    private ExecutorService bossExecutor;
+    private ExecutorService reputExpeiredMessageService;
+    private ScheduledExecutorService scheduledExecutorService;
     private ReentrantReadWriteLock reentrantReadWriteLock = new ReentrantReadWriteLock();
     private Lock readLock = reentrantReadWriteLock.readLock();
     private Lock writeLock = reentrantReadWriteLock.writeLock();
     private ReputExpiredMessageCallback reputExpiredMessageCallback;
-    private OverflowTimingWheel overflowTimingWheel;
+    private int preloadThresholdIndex;
+    private LoadMessageManager loadMessageManager;
 
-    public TimingWheel(long tickMs, int wheelSize, long startMs, ReputExpiredMessageCallback callback) {
+    public TimingWheel(long tickMs, int wheelSize, LoadMessageManager loadMessageManager, ReputExpiredMessageCallback callback) {
         this.tickMs = tickMs;
         this.wheelSize = wheelSize;
         this.interval = tickMs * wheelSize;
         this.reputExpiredMessageCallback = callback;
-
         this.msgCounter = new AtomicInteger(0);
-        this.currentTime = startMs - (startMs % tickMs);
-        this.startMs = startMs;
-        this.buckets = new TimingWheelBucket[wheelSize];
-        for (int i = 0; i < wheelSize; i++) {
-            this.buckets[i] = new TimingWheelBucket();
-        }
-        overflowTimingWheel = new OverflowTimingWheel(interval, wheelSize, startMs);
-        initBossExeutor();
+        this.preloadThresholdIndex = (int) (wheelSize * (80.0 / 100));
+        this.loadMessageManager = loadMessageManager;
+        // TODO startMs 调整为整小时，currentTime为当前时间
+        this.currentTime = System.currentTimeMillis();
+        this.currentTime = currentTime - (currentTime % tickMs);
+        Calendar calendar = Calendar.getInstance();
+        calendar.setTimeInMillis(currentTime);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
+        startMs = calendar.getTimeInMillis();
+        this.loadMessageManager.initBuckets(wheelSize, currentTime);
+        buckets = loadMessageManager.getCurrentBuckets();
+        initExeutorService();
     }
 
-    private void initBossExeutor() {
-        bossExecutor = new ThreadPoolExecutor(2,
-                2,
+    private void initExeutorService() {
+        reputExpeiredMessageService = new ThreadPoolExecutor(1,
+                1,
                 60 , TimeUnit.SECONDS,
                 new LinkedBlockingQueue<Runnable>(),
-                new TimingWheelThreadFactory(),
+                new DelayThreadFactory("reputExpeiredMessageService"),
                 new RejectedExecutionHandler() {
                     @Override
                     public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
@@ -58,28 +66,25 @@ public class TimingWheel {
                     }
                 });
 
-        bossExecutor.submit((Runnable) () -> {
-            while (true) {
-                try {
-                    Thread.sleep(1000);
-                    advanceClock();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-        });
-    }
+        scheduledExecutorService = Executors.newScheduledThreadPool(1,
+                new DelayThreadFactory("scheduledExecutorService"));
 
+        scheduledExecutorService.scheduleWithFixedDelay(new Runnable() {
+            @Override
+            public void run() {
+                advanceClock();
+            }
+        }, tickMs, tickMs, TimeUnit.MILLISECONDS);
+
+    }
 
     public void add(DelayMessageInner msg) {
         try {
             readLock.lock();
             if (msg.getExpirationMs() < currentTime + tickMs) {
                 doReputAsync(msg);
-            } else if (msg.getExpirationMs() < currentTime + interval) {
+            } else if (msg.getExpirationMs() < startMs + interval) {
                 addInner(msg);
-            } else {
-
             }
         } finally {
             readLock.unlock();
@@ -92,9 +97,9 @@ public class TimingWheel {
         TimingWheelBucket bucket = buckets[index];
         bucket.addDelayMessage(msg);
         msgCounter.incrementAndGet();
-
-        // TODO 两个bucket 一个作为缓存
     }
+
+
 
     public void advanceClock() {
         try {
@@ -106,14 +111,26 @@ public class TimingWheel {
             Iterator<DelayMessageInner> it = bucket.getDelayMessageListAndResetBucket();
             log.info("this.currentTime:{}", this.currentTime);
             doReputBatchAsync(it);
-            // TODO 检查时间轮剩余消息，达到一定阈值则从磁盘加载新消息
+            // TODO 两个bucket 一个作为缓存
+            if (index + 1 == wheelSize) {
+                buckets = loadMessageManager.getPreloadBuckets();
+                resetStartMsAndCurrentTime();
+            }
+            if (index >= preloadThresholdIndex) {
+                // TODO 检查时间轮剩余消息，达到一定阈值则启动磁盘数据预加载
+                loadMessageManager.startPreloadBuckets(startMs + interval, tickMs);
+            }
         } finally {
             writeLock.unlock();
         }
     }
 
+    private void resetStartMsAndCurrentTime() {
+        startMs = currentTime;
+    }
+
     private void doReputBatchAsync(Iterator<DelayMessageInner> it) {
-        bossExecutor.submit(new Runnable() {
+        reputExpeiredMessageService.submit(new Runnable() {
             @Override
             public void run() {
                 while(it.hasNext()) {
@@ -124,7 +141,7 @@ public class TimingWheel {
     }
 
     private void doReputAsync(DelayMessageInner msg) {
-        bossExecutor.submit(new Runnable() {
+        reputExpeiredMessageService.submit(new Runnable() {
             @Override
             public void run() {
                 reputDelayMessageCallback(msg);
@@ -135,38 +152,6 @@ public class TimingWheel {
     private void reputDelayMessageCallback(DelayMessageInner msg) {
         msgCounter.decrementAndGet();
         reputExpiredMessageCallback.callback(msg);
-    }
-
-    public interface ReputExpiredMessageCallback {
-        void callback(DelayMessageInner msg);
-    }
-
-    private static class TimingWheelThreadFactory implements ThreadFactory {
-
-        private static final AtomicInteger poolNumber = new AtomicInteger(1);
-        private final ThreadGroup group;
-        private final AtomicInteger threadNumber = new AtomicInteger(1);
-        private final String namePrefix;
-
-        TimingWheelThreadFactory() {
-            SecurityManager s = System.getSecurityManager();
-            group = (s != null) ? s.getThreadGroup() :
-                    Thread.currentThread().getThreadGroup();
-            namePrefix = "TimingWheel-" +
-                    poolNumber.getAndIncrement() +
-                    "-thread-";
-        }
-
-        public Thread newThread(Runnable r) {
-            Thread t = new Thread(group, r,
-                    namePrefix + threadNumber.getAndIncrement(),
-                    0);
-            if (t.isDaemon())
-                t.setDaemon(false);
-            if (t.getPriority() != Thread.NORM_PRIORITY)
-                t.setPriority(Thread.NORM_PRIORITY);
-            return t;
-        }
     }
 
     public int getMessageCount() {

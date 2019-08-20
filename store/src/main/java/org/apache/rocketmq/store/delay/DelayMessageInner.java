@@ -2,7 +2,6 @@ package org.apache.rocketmq.store.delay;
 
 public class DelayMessageInner {
 
-    private String topic;
     private long expirationMs;
     private long queueffset;
     private int size;
@@ -10,21 +9,16 @@ public class DelayMessageInner {
     DelayMessageInner next;
     DelayMessageInner prev;
 
-    public DelayMessageInner(String topic, long expirationMs, long queueffset, int size) {
-        this.topic = topic;
+    public DelayMessageInner(long expirationMs, long queueffset, int size) {
         this.expirationMs = expirationMs;
         this.queueffset = queueffset;
         this.size = size;
     }
 
-
-    public String getTopic() {
-        return topic;
+    public DelayMessageInner(int size) {
+        this.size = size;
     }
 
-    public void setTopic(String topic) {
-        this.topic = topic;
-    }
 
     public long getExpirationMs() {
         return expirationMs;

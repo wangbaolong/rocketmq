@@ -276,6 +276,10 @@ public class MessageStoreConfig {
         return maxDelayMessageSize;
     }
 
+    public int getDelayMessageQueueMappedFileSize() {
+        return maxDelayMessageSize * 2048;
+    }
+
     public void setMaxDelayMessageSize(int maxDelayMessageSize) {
         this.maxDelayMessageSize = maxDelayMessageSize;
     }

@@ -2,22 +2,22 @@ package org.apache.rocketmq.store.delay;
 
 public class DelayMessageStoreResult {
 
-    private int status;
-    private String topic;
+    private boolean success;
     private int queueId;
     private long queueffset;
     private int size;
 
-    public DelayMessageStoreResult(String topic, int queueId, long queueffset, int size) {
-        this.topic = topic;
+    public DelayMessageStoreResult(int queueId, long queueffset, int size) {
         this.queueId = queueId;
         this.queueffset = queueffset;
         this.size = size;
+        this.success = false;
     }
 
-    public String getTopic() {
-        return topic;
+    public DelayMessageStoreResult(boolean success) {
+        this.success = success;
     }
+
 
     public int getQueueId() {
         return queueId;
@@ -31,7 +31,7 @@ public class DelayMessageStoreResult {
         return size;
     }
 
-    public int getStatus() {
-        return status;
+    public boolean getStatus() {
+        return success;
     }
 }

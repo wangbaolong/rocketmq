@@ -52,6 +52,7 @@ import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.store.config.BrokerRole;
 import org.apache.rocketmq.store.config.MessageStoreConfig;
 import org.apache.rocketmq.store.config.StorePathConfigHelper;
+import org.apache.rocketmq.store.delay.DelayMessageDispatchRequest;
 import org.apache.rocketmq.store.delay.DelayMessageManager;
 import org.apache.rocketmq.store.dledger.DLedgerCommitLog;
 import org.apache.rocketmq.store.ha.HAService;
@@ -1421,7 +1422,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     public void doDispatch(DispatchRequest req) {
-        if (req.isDelay()) {
+        if (req instanceof DelayMessageDispatchRequest) {
             commitLogDispatcherDelayQueue.dispatch(req);
             return;
         }
@@ -1515,7 +1516,7 @@ public class DefaultMessageStore implements MessageStore {
 
         private DelayMessageManager delayMessageManager;
         private CommitLogDispatcherBuildDelayQueue() {
-            delayMessageManager = new DelayMessageManager(DefaultMessageStore.this);
+//            delayMessageManager = new DelayMessageManager(DefaultMessageStore.this);
         }
 
         @Override
@@ -1523,7 +1524,7 @@ public class DefaultMessageStore implements MessageStore {
             log.info("CommitLogDispatcherBuildDelayQueue dispatch");
             log.error("CommitLogDispatcherBuildDelayQueue dispatch");
             // TODO 将消息加入到DelayQueue
-            delayMessageManager.putDelayMessage(request);
+//            delayMessageManager.putDelayMessage(request);
         }
     }
 
