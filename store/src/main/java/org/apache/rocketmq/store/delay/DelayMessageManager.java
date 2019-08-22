@@ -13,16 +13,14 @@ public class DelayMessageManager {
 
     private TimingWheel timingWheel;
     private DelayMessageStore delayMessageStore;
-    private LoadMessageManager loadMessageManager;
     private DefaultMessageStore defaultMessageStore;
 
     public DelayMessageManager(DefaultMessageStore defaultMessageStore) {
         this.defaultMessageStore = defaultMessageStore;
         this.delayMessageStore = new DelayMessageStore(defaultMessageStore);
-        this.loadMessageManager = new LoadMessageManager(delayMessageStore);
         timingWheel = new TimingWheel(1000,
                 5400,
-                loadMessageManager,
+                delayMessageStore,
                 new DefaultReputExpiredMessageCallback());
     }
 

@@ -7,7 +7,6 @@ import org.apache.rocketmq.logging.InternalLoggerFactory;
 import java.util.Calendar;
 import java.util.Iterator;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -18,7 +17,6 @@ public class TimingWheel {
     private long tickMs;
     private int wheelSize;
     private long interval;
-    private AtomicInteger msgCounter;
     private long currentTime;
     private long startMs;
     private TimingWheelBucket[] buckets;
@@ -31,14 +29,17 @@ public class TimingWheel {
     private int preloadThresholdIndex;
     private LoadMessageManager loadMessageManager;
 
-    public TimingWheel(long tickMs, int wheelSize, LoadMessageManager loadMessageManager, ReputExpiredMessageCallback callback) {
+    public TimingWheel(long tickMs, int wheelSize, DelayMessageStore delayMessageStore, ReputExpiredMessageCallback callback) {
         this.tickMs = tickMs;
         this.wheelSize = wheelSize;
         this.interval = tickMs * wheelSize;
         this.reputExpiredMessageCallback = callback;
-        this.msgCounter = new AtomicInteger(0);
         this.preloadThresholdIndex = (int) (wheelSize * (80.0 / 100));
-        this.loadMessageManager = loadMessageManager;
+        this.loadMessageManager = new LoadMessageManager(delayMessageStore,
+                startMs + interval,
+                tickMs,
+                wheelSize,
+                interval);
         // TODO startMs 调整为整小时，currentTime为当前时间
         this.currentTime = System.currentTimeMillis();
         this.currentTime = currentTime - (currentTime % tickMs);
@@ -48,8 +49,8 @@ public class TimingWheel {
         calendar.set(Calendar.SECOND, 0);
         calendar.set(Calendar.MILLISECOND, 0);
         startMs = calendar.getTimeInMillis();
-        this.loadMessageManager.initBuckets(wheelSize, currentTime);
-        buckets = loadMessageManager.getCurrentBuckets();
+        buckets = loadMessageManager.getCurrentBuckets(currentTime, tickMs, wheelSize, currentTime);
+        loadMessageManager.startHandleExpiredMessage(currentTime, callback);
         initExeutorService();
     }
 
@@ -58,13 +59,7 @@ public class TimingWheel {
                 1,
                 60 , TimeUnit.SECONDS,
                 new LinkedBlockingQueue<Runnable>(),
-                new DelayThreadFactory("reputExpeiredMessageService"),
-                new RejectedExecutionHandler() {
-                    @Override
-                    public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
-                        log.error("TimingWheel Thread pool rejected");
-                    }
-                });
+                new DelayThreadFactory("reputExpeiredMessageService"));
 
         scheduledExecutorService = Executors.newScheduledThreadPool(1,
                 new DelayThreadFactory("scheduledExecutorService"));
@@ -85,6 +80,8 @@ public class TimingWheel {
                 doReputAsync(msg);
             } else if (msg.getExpirationMs() < startMs + interval) {
                 addInner(msg);
+            } else {
+                loadMessageManager.putMessage(msg);
             }
         } finally {
             readLock.unlock();
@@ -96,7 +93,6 @@ public class TimingWheel {
         int index = (int) virtualId % wheelSize - 1;
         TimingWheelBucket bucket = buckets[index];
         bucket.addDelayMessage(msg);
-        msgCounter.incrementAndGet();
     }
 
 
@@ -118,7 +114,7 @@ public class TimingWheel {
             }
             if (index >= preloadThresholdIndex) {
                 // TODO 检查时间轮剩余消息，达到一定阈值则启动磁盘数据预加载
-                loadMessageManager.startPreloadBuckets(startMs + interval, tickMs);
+                loadMessageManager.startPreloadBuckets();
             }
         } finally {
             writeLock.unlock();
@@ -127,6 +123,7 @@ public class TimingWheel {
 
     private void resetStartMsAndCurrentTime() {
         startMs = currentTime;
+        loadMessageManager.resetstartMs(startMs + interval);
     }
 
     private void doReputBatchAsync(Iterator<DelayMessageInner> it) {
@@ -150,12 +147,7 @@ public class TimingWheel {
     }
 
     private void reputDelayMessageCallback(DelayMessageInner msg) {
-        msgCounter.decrementAndGet();
         reputExpiredMessageCallback.callback(msg);
-    }
-
-    public int getMessageCount() {
-        return msgCounter.get();
     }
 
 }

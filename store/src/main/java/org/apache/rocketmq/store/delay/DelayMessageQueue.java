@@ -134,7 +134,6 @@ public class DelayMessageQueue {
         }  finally {
             lock.unlock();
         }
-
     }
 
     private long loadDelayMessageFromStore0(long startOffset,  LoadDelayMessageCallback callback) {
@@ -149,18 +148,22 @@ public class DelayMessageQueue {
                 int pos = (int) (startOffset % mappedFileSize);
                 SelectMappedBufferResult result = mappedFile.selectMappedBuffer(pos);
                 if (result != null) {
-                    for (int readSize = 0; readSize < result.getSize(); ) {
-                        DelayMessageInner msgInner = readDelayMessage(result.getByteBuffer(), startOffset);
-                        if (msgInner != null && msgInner.getSize() > 0) {
-                            startOffset += msgInner.getSize();
-                            if (callback != null) {
-                                callback.callback(msgInner);
+                    try {
+                        for (int readSize = 0; readSize < result.getSize(); ) {
+                            DelayMessageInner msgInner = readDelayMessage(result.getByteBuffer(), startOffset);
+                            if (msgInner != null && msgInner.getSize() > 0) {
+                                startOffset += msgInner.getSize();
+                                if (callback != null) {
+                                    callback.callback(msgInner);
+                                }
+                            } else {
+                                readSize += result.getSize();
                             }
-                        } else {
-                            readSize += result.getSize();
                         }
+                        startOffset += result.getSize();
+                    } finally {
+                        result.release();
                     }
-                    startOffset += result.getSize();
                 } else {
                     doNext = false;
                 }
@@ -181,7 +184,7 @@ public class DelayMessageQueue {
             }
 
             byte[] bytesContent = new byte[totalSize];
-            // 2 MAGIC CODE
+
 //            int magicCode = byteBuffer.getInt();
 //            int bodyCRC = byteBuffer.getInt();
 
@@ -224,14 +227,15 @@ public class DelayMessageQueue {
             );
 
             int bodyLen = byteBuffer.getInt();
-            byteBuffer.position(byteBuffer.position()
-                    + bodyLen
-            );
 //            if (bodyLen > 0) {
 //                byteBuffer.get(bytesContent, 0, bodyLen);
 //            }
+            byteBuffer.position(byteBuffer.position()
+                    + bodyLen
+            );
 
             byte topicLen = byteBuffer.get();
+
 //            byteBuffer.get(bytesContent, 0, topicLen);
 //            String topic = new String(bytesContent, 0, topicLen, MessageDecoder.CHARSET_UTF8);
 
