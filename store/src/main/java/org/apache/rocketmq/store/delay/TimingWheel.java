@@ -150,4 +150,9 @@ public class TimingWheel {
         reputExpiredMessageCallback.callback(msg);
     }
 
+    public void shutdown() {
+        // TODO shutdown
+        loadMessageManager.shutdown();
+    }
+
 }

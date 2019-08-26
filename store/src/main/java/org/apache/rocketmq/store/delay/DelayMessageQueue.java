@@ -22,6 +22,7 @@ public class DelayMessageQueue {
     private final ByteBuffer byteBuffer;
     private final ReentrantLock lock;
     private final int maxDelayMessageSize;
+    private long maxPhysicOffset = -1;
 
     public DelayMessageQueue(final String queueName,
                              final String storePath,
@@ -40,6 +41,10 @@ public class DelayMessageQueue {
     }
 
     public DelayMessageStoreResult putMessage(DelayMessageDispatchRequest req) {
+        if (req.getMsgSize() + req.getCommitLogOffset() <= maxPhysicOffset) {
+            log.warn("Maybe try to build consume queue repeatedly maxPhysicOffset={} phyOffset={}", maxPhysicOffset, req.getCommitLogOffset());
+            return new DelayMessageStoreResult(false);
+        }
         try {
             this.lock.lock();
             byteBuffer.flip();
@@ -96,6 +101,7 @@ public class DelayMessageQueue {
                 result = mappedFile.appendMessage(byteBuffer.array(), 0, req.getMsgSize());
             }
             if (result) {
+                this.maxPhysicOffset += req.getCommitLogOffset() + req.getMsgSize();
                 return new DelayMessageStoreResult(req.getQueueId(), queueffset, req.getMsgSize());
             } else {
                 return new DelayMessageStoreResult(false);
@@ -126,17 +132,17 @@ public class DelayMessageQueue {
 
     public void loadDelayMessageFromStore(long startOffset, LoadDelayMessageCallback callback) {
         // Cocurrent load delay message
-        startOffset = loadDelayMessageFromStore0(startOffset, callback);
+        startOffset = loadDelayMessageFromStoreInternal(startOffset, callback);
         try {
             // Synchronous load delay message
             lock.lock();
-            loadDelayMessageFromStore0(startOffset, callback);
+            loadDelayMessageFromStoreInternal(startOffset, callback);
         }  finally {
             lock.unlock();
         }
     }
 
-    private long loadDelayMessageFromStore0(long startOffset,  LoadDelayMessageCallback callback) {
+    private long loadDelayMessageFromStoreInternal(long startOffset,  LoadDelayMessageCallback callback) {
         long canReadPosition = getCanReadPosition();
         if (startOffset >= canReadPosition) {
             log.info("DelayMessageQueue queueName:{} loadDelayMessageFromStoreToTimingWheel canReadPosition = 0", queueName);
@@ -252,6 +258,68 @@ public class DelayMessageQueue {
 
         }
         return null;
+    }
+
+    public boolean load() {
+        boolean result = this.mappedFileQueue.load();
+        log.info("load delay queue {} result :", this.queueName, result);
+        return result;
+    }
+
+    public void recover() {
+        final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
+        if (!mappedFiles.isEmpty()) {
+            int index = mappedFiles.size() - 3;
+            if (index < 0) {
+                index = 0;
+            }
+//            int mappedFileSize = this.mappedFileSize;
+            MappedFile mappedFile = mappedFiles.get(index);
+            ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
+//            long processOffset = mappedFile.getFileFromOffset();
+//            long mappedFileOffset = 0;
+            while(true) {
+                int msgSize = -1;
+                while (msgSize != 0) {
+                    msgSize = byteBuffer.getInt();// message size
+                    byteBuffer.position(byteBuffer.position()
+                            + 4 // magicCode
+                            + 4 // bodyCRC
+                            + 4 // flag
+                            + 8 // queueOffset
+                    );
+                    long physicOffset = byteBuffer.getLong();
+                    byteBuffer.position(byteBuffer.position()
+                            + 4 // sysFlag
+                            + 8 // bornTimeStamp
+                            + 8 // bornHost
+                            + 8 // storeHost
+                            + 4 // reconsumeTimes
+                            + 8 // preparedTransactionOffset
+                    );
+                    int bodyLen = byteBuffer.getInt();
+                    byteBuffer.position(byteBuffer.position()
+                            + bodyLen
+                    );
+                    byte topicLen = byteBuffer.get();
+                    byteBuffer.position(byteBuffer.position()
+                            + topicLen
+                    );
+                    short propertiesLength = byteBuffer.getShort();
+                    byteBuffer.position(byteBuffer.position()
+                            + propertiesLength
+                    );
+                    this.maxPhysicOffset = physicOffset + msgSize;
+                }
+                index++;
+                mappedFile = mappedFiles.get(index);
+                byteBuffer = mappedFile.sliceByteBuffer();
+            }
+        }
+    }
+
+    public long getMaxPhysicOffset() {
+        return maxPhysicOffset;
     }
 
     public interface LoadDelayMessageCallback {

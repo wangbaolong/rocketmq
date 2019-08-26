@@ -54,6 +54,7 @@ import org.apache.rocketmq.store.config.MessageStoreConfig;
 import org.apache.rocketmq.store.config.StorePathConfigHelper;
 import org.apache.rocketmq.store.delay.DelayMessageDispatchRequest;
 import org.apache.rocketmq.store.delay.DelayMessageManager;
+import org.apache.rocketmq.store.delay.DelayMessageQueue;
 import org.apache.rocketmq.store.dledger.DLedgerCommitLog;
 import org.apache.rocketmq.store.ha.HAService;
 import org.apache.rocketmq.store.index.IndexService;
@@ -114,6 +115,8 @@ public class DefaultMessageStore implements MessageStore {
     boolean shutDownNormal = false;
 
     private CommitLogDispatcher commitLogDispatcherDelayQueue;
+
+    private DelayMessageManager delayMessageManager;
 
     public DefaultMessageStore(final MessageStoreConfig messageStoreConfig, final BrokerStatsManager brokerStatsManager,
         final MessageArrivingListener messageArrivingListener, final BrokerConfig brokerConfig) throws IOException {
@@ -193,6 +196,8 @@ public class DefaultMessageStore implements MessageStore {
             // load Consume Queue
             result = result && this.loadConsumeQueue();
 
+            result = result && this.delayMessageManager.load(lastExitOK);
+
             if (result) {
                 this.storeCheckpoint =
                     new StoreCheckpoint(StorePathConfigHelper.getStoreCheckpoint(this.messageStoreConfig.getStorePathRootDir()));
@@ -242,6 +247,15 @@ public class DefaultMessageStore implements MessageStore {
                     }
                 }
             }
+
+
+            ConcurrentHashMap<String, DelayMessageQueue> delayMessageQueueTable = delayMessageManager.getDelayMessageQueueTable();
+            for (Entry<String, DelayMessageQueue> entry : delayMessageQueueTable.entrySet()) {
+                if (entry.getValue().getMaxPhysicOffset() > maxPhysicalPosInLogicQueue) {
+                    maxPhysicalPosInLogicQueue = entry.getValue().getMaxPhysicOffset();
+                }
+            }
+
             if (maxPhysicalPosInLogicQueue < 0) {
                 maxPhysicalPosInLogicQueue = 0;
             }
@@ -320,6 +334,7 @@ public class DefaultMessageStore implements MessageStore {
             this.allocateMappedFileService.shutdown();
             this.storeCheckpoint.flush();
             this.storeCheckpoint.shutdown();
+            this.delayMessageManager.shutdown();
 
             if (this.runningFlags.isWriteable() && dispatchBehindBytes() == 0) {
                 this.deleteFile(StorePathConfigHelper.getAbortFile(this.messageStoreConfig.getStorePathRootDir()));
@@ -1333,6 +1348,8 @@ public class DefaultMessageStore implements MessageStore {
     private void recover(final boolean lastExitOK) {
         long maxPhyOffsetOfConsumeQueue = this.recoverConsumeQueue();
 
+        // TODO Delay message recover
+
         if (lastExitOK) {
             this.commitLog.recoverNormally(maxPhyOffsetOfConsumeQueue);
         } else {
@@ -1522,7 +1539,6 @@ public class DefaultMessageStore implements MessageStore {
         @Override
         public void dispatch(DispatchRequest request) {
             log.info("CommitLogDispatcherBuildDelayQueue dispatch");
-            log.error("CommitLogDispatcherBuildDelayQueue dispatch");
             // TODO 将消息加入到DelayQueue
 //            delayMessageManager.putDelayMessage(request);
         }

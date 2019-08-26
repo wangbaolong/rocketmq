@@ -12,33 +12,38 @@ public class TimingWheelTest {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.DELAY_MESSAGE_LOGGER_NAME);
 
     public static void main(String[] args) {
+        log.info("TimingWheelTest main");
+        log.info("TimingWheelTest main");
+        log.info("TimingWheelTest main");
+        log.info("TimingWheelTest main");
+        log.info("TimingWheelTest main");
         long currentTime = System.currentTimeMillis();
-        TimingWheel timingWheel = new TimingWheel(1000,
-                5400,
-                null,
-                new ReputExpiredMessageCallback(){
-                    @Override
-                    public void callback(DelayMessageInner msg) {
-                        log.info("ReputExpiredMessageCallback callback expirationMs:" + msg.getExpirationMs() + "  currentMillTime:" + System.currentTimeMillis());
-                    }
-                });
-        long delay = currentTime + 0;
-        DelayMessageInner msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
-        timingWheel.add(msg);
-        delay = currentTime + 8000;
-        msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
-        timingWheel.add(msg);
-        delay = currentTime + 8000;
-        msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
-        timingWheel.add(msg);
-        delay = currentTime + 10000;
-        msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
-        timingWheel.add(msg);
-        delay = currentTime + 12000;
-        msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
-        timingWheel.add(msg);
-        delay = currentTime + 15000;
-        msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
-        timingWheel.add(msg);
+//        TimingWheel timingWheel = new TimingWheel(1000,
+//                5400,
+//                null,
+//                new ReputExpiredMessageCallback(){
+//                    @Override
+//                    public void callback(DelayMessageInner msg) {
+//                        log.info("ReputExpiredMessageCallback callback expirationMs:" + msg.getExpirationMs() + "  currentMillTime:" + System.currentTimeMillis());
+//                    }
+//                });
+//        long delay = currentTime + 0;
+//        DelayMessageInner msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
+//        timingWheel.add(msg);
+//        delay = currentTime + 8000;
+//        msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
+//        timingWheel.add(msg);
+//        delay = currentTime + 8000;
+//        msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
+//        timingWheel.add(msg);
+//        delay = currentTime + 10000;
+//        msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
+//        timingWheel.add(msg);
+//        delay = currentTime + 12000;
+//        msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
+//        timingWheel.add(msg);
+//        delay = currentTime + 15000;
+//        msg = new DelayMessageInner("TopicTest", delay, 1000, 64);
+//        timingWheel.add(msg);
     }
 }

@@ -57,7 +57,11 @@ public class StorePathConfigHelper {
     }
 
     public static String getStorePathDelayMessageQueue(final String rootDir) {
-        return rootDir + File.separator + "consumequeue" + File.separator + "delaymessage";
+        return rootDir + File.separator + "delayqueue";
+    }
+
+    public static String getStorePathDelayMessageDispatch(final String rootDir) {
+        return rootDir + File.separator + "delay_message_dispatch";
     }
 
 }

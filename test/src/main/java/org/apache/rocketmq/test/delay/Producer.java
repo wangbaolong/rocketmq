@@ -70,7 +70,7 @@ public class Producer {
 
 //                msg.setDelayTimeLevel(2);
 
-//                msg.setDelayTime(50000);
+                msg.setDelayTime(50000);
                 msg.putUserProperty("a", "bb");
                 /*
                  * Call send message to deliver message to one of brokers.

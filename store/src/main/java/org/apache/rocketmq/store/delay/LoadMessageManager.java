@@ -14,7 +14,6 @@ public class LoadMessageManager {
     private final int PRELOAD_STATUS_IDEA = 0;
     private final int PRELOAD_STATUS_LOADING = 1;
     private final int PRELOAD_STATUS_LOAD_END = 2;
-    private final int PRELOAD_STATUS_GETTING_BUCKETS = 3;
 
     private DelayMessageStore delayMessageStore;
     private TimingWheelBucket[] currentBuckets;
@@ -98,17 +97,14 @@ public class LoadMessageManager {
     public TimingWheelBucket[] getPreloadBuckets() {
         log.info("LoadMessageManager getPreloadBuckets current status:{}", preloadStatus.get());
         try {
-            if (preloadFuture != null) {
+            if (preloadStatus.get() == PRELOAD_STATUS_LOADING || preloadStatus.get() == PRELOAD_STATUS_LOAD_END) {
                 TimingWheelBucket[] buckets = preloadFuture.get();
-                if (preloadStatus.compareAndSet(PRELOAD_STATUS_LOAD_END, PRELOAD_STATUS_GETTING_BUCKETS)) {
+                if (preloadStatus.compareAndSet(PRELOAD_STATUS_LOAD_END, PRELOAD_STATUS_IDEA)) {
                     preLoadBuckets = currentBuckets;
                     currentBuckets = buckets;
                     preloadFuture = null;
-                    preloadStatus.set(PRELOAD_STATUS_IDEA);
                     return buckets;
                 }
-            } else {
-                log.info("[BUG] LoadMessageManager getPreloadBuckets preloadFuture is null");
             }
         } catch (InterruptedException e) {
             e.printStackTrace();
@@ -167,6 +163,10 @@ public class LoadMessageManager {
 
             }
         });
+    }
+
+    public void shutdown() {
+        // TODO shutdown
     }
 
 }

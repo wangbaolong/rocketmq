@@ -11,7 +11,7 @@ public class DelayMessageStoreResult {
         this.queueId = queueId;
         this.queueffset = queueffset;
         this.size = size;
-        this.success = false;
+        this.success = true;
     }
 
     public DelayMessageStoreResult(boolean success) {
