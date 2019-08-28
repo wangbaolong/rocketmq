@@ -164,6 +164,8 @@ public class DefaultMessageStore implements MessageStore {
         File file = new File(StorePathConfigHelper.getLockFile(messageStoreConfig.getStorePathRootDir()));
         MappedFile.ensureDirOK(file.getParent());
         lockFile = new RandomAccessFile(file, "rw");
+
+        this.delayMessageManager = new DelayMessageManager(this);
     }
 
     public void truncateDirtyLogicFiles(long phyOffset) {
@@ -298,6 +300,7 @@ public class DefaultMessageStore implements MessageStore {
         this.flushConsumeQueueService.start();
         this.commitLog.start();
         this.storeStatsService.start();
+        this.delayMessageManager.start();
 
         this.createTempFile();
         this.addScheduleTask();
@@ -1348,7 +1351,7 @@ public class DefaultMessageStore implements MessageStore {
     private void recover(final boolean lastExitOK) {
         long maxPhyOffsetOfConsumeQueue = this.recoverConsumeQueue();
 
-        // TODO Delay message recover
+        maxPhyOffsetOfConsumeQueue = Math.max(maxPhyOffsetOfConsumeQueue, delayMessageManager.recover());
 
         if (lastExitOK) {
             this.commitLog.recoverNormally(maxPhyOffsetOfConsumeQueue);
@@ -1531,7 +1534,6 @@ public class DefaultMessageStore implements MessageStore {
 
     class CommitLogDispatcherBuildDelayQueue implements CommitLogDispatcher {
 
-        private DelayMessageManager delayMessageManager;
         private CommitLogDispatcherBuildDelayQueue() {
 //            delayMessageManager = new DelayMessageManager(DefaultMessageStore.this);
         }
@@ -1539,8 +1541,7 @@ public class DefaultMessageStore implements MessageStore {
         @Override
         public void dispatch(DispatchRequest request) {
             log.info("CommitLogDispatcherBuildDelayQueue dispatch");
-            // TODO 将消息加入到DelayQueue
-//            delayMessageManager.putDelayMessage(request);
+            delayMessageManager.putDelayMessage((DelayMessageDispatchRequest) request);
         }
     }
 

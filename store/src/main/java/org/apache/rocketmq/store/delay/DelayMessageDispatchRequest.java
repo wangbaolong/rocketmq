@@ -2,6 +2,7 @@ package org.apache.rocketmq.store.delay;
 
 import org.apache.rocketmq.store.DispatchRequest;
 
+import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -90,4 +91,17 @@ public class DelayMessageDispatchRequest extends DispatchRequest {
         return timeUnit;
     }
 
+    @Override
+    public String toString() {
+        return "DelayMessageDispatchRequest{" +
+                "timeUnit=" + timeUnit +
+                ", bodyCRC=" + bodyCRC +
+                ", flag=" + flag +
+                ", bornTimestamp=" + bornTimestamp +
+                ", bornHost=" + Arrays.toString(bornHost) +
+                ", storeHost=" + Arrays.toString(storeHost) +
+                ", reconsumeTimes=" + reconsumeTimes +
+                ", body=" + Arrays.toString(body) +
+                '}';
+    }
 }

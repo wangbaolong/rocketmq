@@ -31,7 +31,7 @@ public class DelayMessageStoreResult {
         return size;
     }
 
-    public boolean getStatus() {
+    public boolean isSuccess() {
         return success;
     }
 }

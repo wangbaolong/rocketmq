@@ -40,6 +40,8 @@ public class LoadMessageManager {
 
         initLoadMessageService();
 
+        this.currentBuckets = new TimingWheelBucket[wheelSize];
+        this.preLoadBuckets = new TimingWheelBucket[wheelSize];
         for (int i = 0; i < wheelSize; i++) {
             this.currentBuckets[i] = new TimingWheelBucket();
             this.preLoadBuckets[i] = new TimingWheelBucket();
@@ -51,14 +53,7 @@ public class LoadMessageManager {
                 3,
                 60 , TimeUnit.SECONDS,
                 new LinkedBlockingQueue<Runnable>(),
-                new DelayThreadFactory("loadMessageService"),
-                    new RejectedExecutionHandler() {
-                        @Override
-                        public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
-                            log.error("OverflowTimingWheel Thread pool rejected");
-                        }
-                    }
-                );
+                new DelayThreadFactory("loadMessageService"));
     }
 
     public void resetstartMs(long startMs) {

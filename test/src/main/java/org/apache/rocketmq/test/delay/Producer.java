@@ -22,6 +22,8 @@ import org.apache.rocketmq.client.producer.SendResult;
 import org.apache.rocketmq.common.message.Message;
 import org.apache.rocketmq.remoting.common.RemotingHelper;
 
+import java.util.Date;
+
 /**
  * This class demonstrates how to send messages to brokers using provided {@link DefaultMQProducer}.
  */
@@ -70,7 +72,7 @@ public class Producer {
 
 //                msg.setDelayTimeLevel(2);
 
-                msg.setDelayTime(50000);
+                msg.setDelayTime(300);
                 msg.putUserProperty("a", "bb");
                 /*
                  * Call send message to deliver message to one of brokers.

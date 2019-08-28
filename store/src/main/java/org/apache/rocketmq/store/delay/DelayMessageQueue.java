@@ -42,7 +42,7 @@ public class DelayMessageQueue {
 
     public DelayMessageStoreResult putMessage(DelayMessageDispatchRequest req) {
         if (req.getMsgSize() + req.getCommitLogOffset() <= maxPhysicOffset) {
-            log.warn("Maybe try to build consume queue repeatedly maxPhysicOffset={} phyOffset={}", maxPhysicOffset, req.getCommitLogOffset());
+            log.warn("Maybe try to build delay queue repeatedly maxPhysicOffset={} phyOffset={}", maxPhysicOffset, req.getCommitLogOffset());
             return new DelayMessageStoreResult(false);
         }
         try {
@@ -114,14 +114,6 @@ public class DelayMessageQueue {
         return new DelayMessageStoreResult(false);
     }
 
-    public List<MappedFile> getMappedFiles() {
-        return this.mappedFileQueue.getMappedFiles();
-    }
-
-    public MappedFileQueue getMappedFileQueue() {
-        return mappedFileQueue;
-    }
-
     public long getCanReadPosition() {
         MappedFile last = mappedFileQueue.getLastMappedFile();
         if (last != null) {
@@ -159,6 +151,7 @@ public class DelayMessageQueue {
                             DelayMessageInner msgInner = readDelayMessage(result.getByteBuffer(), startOffset);
                             if (msgInner != null && msgInner.getSize() > 0) {
                                 startOffset += msgInner.getSize();
+                                readSize += result.getSize();
                                 if (callback != null) {
                                     callback.callback(msgInner);
                                 }
@@ -253,11 +246,16 @@ public class DelayMessageQueue {
             byteBuffer.position(byteBuffer.position()
                     + propertiesLength
             );
-            return new DelayMessageInner(queueId * 1000, startOffset, totalSize);
+            return new DelayMessageInner(queueId * 1000L, startOffset, totalSize);
         } catch (Exception e) {
 
         }
         return null;
+    }
+
+    public MessageExtBrokerInner getMessage(long queueOffset, int size) {
+        // 重新投放 读取消息
+        return new MessageExtBrokerInner();
     }
 
     public boolean load() {
@@ -266,25 +264,28 @@ public class DelayMessageQueue {
         return result;
     }
 
-    public void recover() {
+    public long recover() {
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
             int index = mappedFiles.size() - 3;
             if (index < 0) {
                 index = 0;
             }
-//            int mappedFileSize = this.mappedFileSize;
+            int mappedFileSize = this.mappedFileSize;
             MappedFile mappedFile = mappedFiles.get(index);
             ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
-//            long processOffset = mappedFile.getFileFromOffset();
-//            long mappedFileOffset = 0;
+            long processOffset = mappedFile.getFileFromOffset();
+            long mappedFileOffset = 0;
             while(true) {
-                int msgSize = -1;
-                while (msgSize != 0) {
-                    msgSize = byteBuffer.getInt();// message size
+                while (true) {
+                    int msgSize = byteBuffer.getInt();// message size
+                    if (msgSize <= 0) {
+                        break;
+                    }
                     byteBuffer.position(byteBuffer.position()
                             + 4 // magicCode
                             + 4 // bodyCRC
+                            + 4 // queueId
                             + 4 // flag
                             + 8 // queueOffset
                     );
@@ -310,12 +311,31 @@ public class DelayMessageQueue {
                             + propertiesLength
                     );
                     this.maxPhysicOffset = physicOffset + msgSize;
+                    mappedFileOffset += msgSize;
                 }
                 index++;
-                mappedFile = mappedFiles.get(index);
-                byteBuffer = mappedFile.sliceByteBuffer();
+                if (index >= mappedFiles.size()) {
+                    log.info("recover last delay queue file over, last mapped file "
+                            + mappedFile.getFileName());
+                    break;
+                } else {
+                    mappedFile = mappedFiles.get(index);
+                    byteBuffer = mappedFile.sliceByteBuffer();
+                    processOffset = mappedFile.getFileFromOffset();
+                    mappedFileOffset = 0;
+                    log.info("recover next delay queue file, " + mappedFile.getFileName());
+                }
             }
+            processOffset += mappedFileOffset;
+            this.mappedFileQueue.setFlushedWhere(processOffset);
+            this.mappedFileQueue.setCommittedWhere(processOffset);
+            this.mappedFileQueue.truncateDirtyFiles(processOffset);
         }
+        return this.maxPhysicOffset;
+    }
+
+    public boolean flush(final int flushLeastPages) {
+        return this.mappedFileQueue.flush(flushLeastPages);
     }
 
     public long getMaxPhysicOffset() {

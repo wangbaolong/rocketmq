@@ -10,6 +10,7 @@ import org.apache.rocketmq.store.config.StorePathConfigHelper;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class DelayMessageStore {
@@ -34,12 +35,17 @@ public class DelayMessageStore {
             msgQueue = new DelayMessageQueue(queueName, storePath, mappedFileSize, defaultMessageStore);
             delayMessageQueueTable.put(queueName, msgQueue);
         }
-        msgQueue.putMessage(req);
-        return null;
+        return msgQueue.putMessage(req);
     }
 
     public MessageExtBrokerInner getMessage(int queueId, long queueOffset, int size) {
-        return new MessageExtBrokerInner();
+        String queueName = simpleDateFormat.format(new Date(queueId * 1000));
+        DelayMessageQueue msgQueue = delayMessageQueueTable.get(queueName);
+        if (msgQueue == null) {
+            log.info("DelayMessageStore getMessage msgQueue is null {} {} {}", queueId, queueOffset, size);
+            return null;
+        }
+        return msgQueue.getMessage(queueOffset, size);
     }
 
     public void loadDelayMessageFromStoreToTimingWheel(long startMs, DelayMessageQueue.LoadDelayMessageCallback callback) throws Exception {
@@ -49,7 +55,6 @@ public class DelayMessageStore {
             msgQueue.loadDelayMessageFromStore(0, callback);
         } else {
             log.info("loadDelayMessageFromStoreToTimingWheel DelayMessageQueue is null queueName:{}", queueName);
-            throw new Exception("DelayMessageQueue is null queueName:" + queueName);
         }
     }
 
@@ -74,6 +79,14 @@ public class DelayMessageStore {
 
     public ConcurrentHashMap<String, DelayMessageQueue> getDelayMessageQueueTable() {
         return delayMessageQueueTable;
+    }
+
+    public long recover() {
+        long maxPhysicalOffset = -1;
+        for (Map.Entry<String, DelayMessageQueue> entry : delayMessageQueueTable.entrySet()) {
+            maxPhysicalOffset = Math.max(entry.getValue().recover(), maxPhysicalOffset);
+        }
+        return maxPhysicalOffset;
     }
 
 
