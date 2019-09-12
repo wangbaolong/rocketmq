@@ -4,6 +4,7 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 
+import java.text.ParseException;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -65,8 +66,8 @@ public class LoadMessageManager {
             Future<TimingWheelBucket[]> currentFuture = loadMessageService.submit(new Callable<TimingWheelBucket[]>() {
                 @Override
                 public TimingWheelBucket[] call() throws Exception {
-                    delayMessageStore.loadDelayMessageFromStoreToTimingWheel(startMs,
-                            new DelayMessageQueue.LoadDelayMessageCallback() {
+                    delayMessageStore.loadMessageFromStoreToTimingWheel(startMs,
+                            new DelayMessageQueue.LoadMessageCallback() {
                                 @Override
                                 public void callback(DelayMessageInner msgInner) {
                                     if (msgInner.getExpirationMs() > currentTime) {
@@ -119,7 +120,7 @@ public class LoadMessageManager {
 
     private void putMessage0(DelayMessageInner msgInner) {
         long virtualId = (msgInner.getExpirationMs() - startMs) / tickMs;
-        int index = (int) virtualId % wheelSize - 1;
+        int index = (int) virtualId % wheelSize;
         TimingWheelBucket bucket = preLoadBuckets[index];
         bucket.addDelayMessage(msgInner);
     }
@@ -130,10 +131,9 @@ public class LoadMessageManager {
             preloadFuture = loadMessageService.submit(new Callable<TimingWheelBucket[]>() {
                 @Override
                 public TimingWheelBucket[] call() {
-                    //startMs
                     try {
-                        delayMessageStore.loadDelayMessageFromStoreToTimingWheel(startMs,
-                                new DelayMessageQueue.LoadDelayMessageCallback() {
+                        delayMessageStore.loadMessageFromStoreToTimingWheel(startMs,
+                                new DelayMessageQueue.LoadMessageCallback() {
                                     @Override
                                     public void callback(DelayMessageInner msgInner) {
                                         putMessage0(msgInner);
@@ -151,11 +151,26 @@ public class LoadMessageManager {
         }
     }
 
-    public void startHandleExpiredMessage(long currentTime, ReputExpiredMessageCallback callback) {
+    public void startHandleExpiredMessage(long currentTime,
+                                          long dispatchTimestamp,
+                                          ReputExpiredMessageCallback callback) {
         loadMessageService.submit(new Runnable() {
             @Override
             public void run() {
-
+                try {
+                    delayMessageStore.loadExpiredMessage(dispatchTimestamp, currentTime,
+                            new DelayMessageQueue.LoadMessageCallback() {
+                                @Override
+                                public void callback(DelayMessageInner msgInner) {
+                                    if (msgInner.getExpirationMs() > dispatchTimestamp
+                                            && msgInner.getExpirationMs() <= currentTime){
+                                        callback.callback(msgInner);
+                                    }
+                                }
+                            });
+                } catch (ParseException e) {
+                    e.printStackTrace();
+                }
             }
         });
     }

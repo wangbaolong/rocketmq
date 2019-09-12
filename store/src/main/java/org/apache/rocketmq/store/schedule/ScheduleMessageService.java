@@ -388,7 +388,6 @@ public class ScheduleMessageService extends ConfigManager {
             msgInner.setBornHost(msgExt.getBornHost());
             msgInner.setStoreHost(msgExt.getStoreHost());
             msgInner.setReconsumeTimes(msgExt.getReconsumeTimes());
-
             msgInner.setWaitStoreMsgOK(false);
             MessageAccessor.clearProperty(msgInner, MessageConst.PROPERTY_DELAY_TIME_LEVEL);
 

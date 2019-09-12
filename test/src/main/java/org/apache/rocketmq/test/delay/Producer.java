@@ -72,7 +72,7 @@ public class Producer {
 
 //                msg.setDelayTimeLevel(2);
 
-                msg.setDelayTime(300);
+                msg.setDelayTime(120);
                 msg.putUserProperty("a", "bb");
                 /*
                  * Call send message to deliver message to one of brokers.
@@ -80,7 +80,7 @@ public class Producer {
                 SendResult sendResult = producer.send(msg);
 
                 System.out.printf("%s%n", sendResult);
-                Thread.sleep(600000);
+                Thread.sleep(1000);
             } catch (Exception e) {
                 e.printStackTrace();
                 Thread.sleep(1000);

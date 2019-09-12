@@ -1,7 +1,12 @@
 package org.apache.rocketmq.store.delay;
 
+import org.apache.rocketmq.common.TopicFilterType;
 import org.apache.rocketmq.common.constant.LoggerName;
+import org.apache.rocketmq.common.message.MessageAccessor;
+import org.apache.rocketmq.common.message.MessageConst;
 import org.apache.rocketmq.common.message.MessageDecoder;
+import org.apache.rocketmq.common.message.MessageExt;
+import org.apache.rocketmq.common.sysflag.MessageSysFlag;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.store.*;
@@ -63,15 +68,18 @@ public class DelayMessageQueue {
             byteBuffer.put(req.getStoreHost());
             byteBuffer.putInt(req.getReconsumeTimes());
             byteBuffer.putLong(req.getPreparedTransactionOffset());
+
             byte[] body = req.getBody();
-            if (body != null) {
+            if (body != null && body.length > 0) {
                 byteBuffer.putInt(body.length);
                 byteBuffer.put(body);
             } else {
                 byteBuffer.putInt(0);
             }
+
             byteBuffer.put((byte) req.getTopic().length());
             byteBuffer.put(req.getTopic().getBytes(MessageDecoder.CHARSET_UTF8));
+
             String propertiesString = MessageDecoder.messageProperties2String(req.getPropertiesMap());
             if (propertiesString != null && propertiesString.length() > 0) {
                 byte[] properties = propertiesString.getBytes(MessageDecoder.CHARSET_UTF8);
@@ -101,7 +109,7 @@ public class DelayMessageQueue {
                 result = mappedFile.appendMessage(byteBuffer.array(), 0, req.getMsgSize());
             }
             if (result) {
-                this.maxPhysicOffset += req.getCommitLogOffset() + req.getMsgSize();
+                this.maxPhysicOffset = req.getCommitLogOffset() + req.getMsgSize();
                 return new DelayMessageStoreResult(req.getQueueId(), queueffset, req.getMsgSize());
             } else {
                 return new DelayMessageStoreResult(false);
@@ -122,22 +130,26 @@ public class DelayMessageQueue {
         return 0;
     }
 
-    public void loadDelayMessageFromStore(long startOffset, LoadDelayMessageCallback callback) {
+    public void loadMessageFromStore(long startOffset, LoadMessageCallback callback) {
         // Cocurrent load delay message
-        startOffset = loadDelayMessageFromStoreInternal(startOffset, callback);
+        startOffset = loadMessageFromStoreInternal(startOffset, callback);
         try {
             // Synchronous load delay message
             lock.lock();
-            loadDelayMessageFromStoreInternal(startOffset, callback);
+            loadMessageFromStoreInternal(startOffset, callback);
         }  finally {
             lock.unlock();
         }
     }
 
-    private long loadDelayMessageFromStoreInternal(long startOffset,  LoadDelayMessageCallback callback) {
+    public void loadExpiredMessage(long startOffset, LoadMessageCallback callback) {
+        loadMessageFromStoreInternal(startOffset, callback);
+    }
+
+    private long loadMessageFromStoreInternal(long startOffset, LoadMessageCallback callback) {
         long canReadPosition = getCanReadPosition();
         if (startOffset >= canReadPosition) {
-            log.info("DelayMessageQueue queueName:{} loadDelayMessageFromStoreToTimingWheel canReadPosition = 0", queueName);
+            log.info("DelayMessageQueue queueName:{} loadMessageFromStoreToTimingWheel canReadPosition = 0", queueName);
             return startOffset;
         }
         for (boolean doNext = true; doNext && startOffset < canReadPosition;) {
@@ -150,13 +162,12 @@ public class DelayMessageQueue {
                         for (int readSize = 0; readSize < result.getSize(); ) {
                             DelayMessageInner msgInner = readDelayMessage(result.getByteBuffer(), startOffset);
                             if (msgInner != null && msgInner.getSize() > 0) {
-                                startOffset += msgInner.getSize();
-                                readSize += result.getSize();
+                                readSize += msgInner.getSize();
                                 if (callback != null) {
                                     callback.callback(msgInner);
                                 }
                             } else {
-                                readSize += result.getSize();
+                                readSize = result.getSize();
                             }
                         }
                         startOffset += result.getSize();
@@ -182,36 +193,12 @@ public class DelayMessageQueue {
                 return new DelayMessageInner(0);
             }
 
-            byte[] bytesContent = new byte[totalSize];
-
-//            int magicCode = byteBuffer.getInt();
-//            int bodyCRC = byteBuffer.getInt();
-
             byteBuffer.position(byteBuffer.position()
                     + 4 // magicCode
                     + 4 // bodyCRC
             );
 
             int queueId = byteBuffer.getInt();
-
-
-//            int flag = byteBuffer.getInt();
-//
-//            long queueOffset = byteBuffer.getLong();
-//
-//            long physicOffset = byteBuffer.getLong();
-//
-//            int sysFlag = byteBuffer.getInt();
-//
-//            long bornTimeStamp = byteBuffer.getLong();
-//
-//            ByteBuffer byteBuffer1 = byteBuffer.get(bytesContent, 0, 8);
-//
-//            ByteBuffer byteBuffer2 = byteBuffer.get(bytesContent, 0, 8);
-//
-//            int reconsumeTimes = byteBuffer.getInt();
-//
-//            long preparedTransactionOffset = byteBuffer.getLong();
 
             byteBuffer.position(byteBuffer.position()
                     + 4 // flag
@@ -220,24 +207,17 @@ public class DelayMessageQueue {
                     + 4 // sysFlag
                     + 8 // bornTimeStamp
                     + 8 // bornHost
+                    + 8 // storeTimestamp
                     + 8 // storeHost
                     + 4 // reconsumeTimes
                     + 8 // preparedTransactionOffset
             );
 
             int bodyLen = byteBuffer.getInt();
-//            if (bodyLen > 0) {
-//                byteBuffer.get(bytesContent, 0, bodyLen);
-//            }
             byteBuffer.position(byteBuffer.position()
                     + bodyLen
             );
-
             byte topicLen = byteBuffer.get();
-
-//            byteBuffer.get(bytesContent, 0, topicLen);
-//            String topic = new String(bytesContent, 0, topicLen, MessageDecoder.CHARSET_UTF8);
-
             byteBuffer.position(byteBuffer.position()
                     + topicLen
             );
@@ -248,14 +228,27 @@ public class DelayMessageQueue {
             );
             return new DelayMessageInner(queueId * 1000L, startOffset, totalSize);
         } catch (Exception e) {
-
+            log.error("Load delay message  ");
         }
         return null;
     }
 
     public MessageExtBrokerInner getMessage(long queueOffset, int size) {
-        // 重新投放 读取消息
-        return new MessageExtBrokerInner();
+        int mappedFileSize = this.mappedFileSize;
+        MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(queueOffset, queueOffset == 0);
+        if (mappedFile != null) {
+            int pos = (int) (queueOffset % mappedFileSize);
+            SelectMappedBufferResult result =  mappedFile.selectMappedBuffer(pos, size);
+            if (result != null) {
+                try {
+                    MessageExt messageExt = MessageDecoder.decode(result.getByteBuffer(), true, false);
+                    return this.messageTimeup(messageExt);
+                } finally {
+                    result.release();
+                }
+            }
+        }
+        return null;
     }
 
     public boolean load() {
@@ -294,6 +287,7 @@ public class DelayMessageQueue {
                             + 4 // sysFlag
                             + 8 // bornTimeStamp
                             + 8 // bornHost
+                            + 8 // storeTimestamp
                             + 8 // storeHost
                             + 4 // reconsumeTimes
                             + 8 // preparedTransactionOffset
@@ -342,7 +336,41 @@ public class DelayMessageQueue {
         return maxPhysicOffset;
     }
 
-    public interface LoadDelayMessageCallback {
+    private MessageExtBrokerInner messageTimeup(MessageExt msgExt) {
+        MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
+        msgInner.setBody(msgExt.getBody());
+        msgInner.setFlag(msgExt.getFlag());
+        MessageAccessor.setProperties(msgInner, msgExt.getProperties());
+
+        TopicFilterType topicFilterType = MessageExt.parseTopicFilterType(msgInner.getSysFlag());
+        long tagsCodeValue =
+                MessageExtBrokerInner.tagsString2tagsCode(topicFilterType, msgInner.getTags());
+        msgInner.setTagsCode(tagsCodeValue);
+
+        msgInner.setSysFlag(MessageSysFlag.cleanDelayMessage(msgExt.getSysFlag()));
+        msgInner.setBornTimestamp(msgExt.getBornTimestamp());
+        msgInner.setBornHost(msgExt.getBornHost());
+        msgInner.setStoreHost(msgExt.getStoreHost());
+        msgInner.setReconsumeTimes(msgExt.getReconsumeTimes());
+
+        msgInner.setWaitStoreMsgOK(false);
+
+        msgInner.setTopic(msgInner.getProperty(MessageConst.PROPERTY_REAL_TOPIC));
+        String queueIdStr = msgInner.getProperty(MessageConst.PROPERTY_REAL_QUEUE_ID);
+        int queueId = Integer.parseInt(queueIdStr);
+        msgInner.setQueueId(queueId);
+
+        MessageAccessor.clearProperty(msgInner, MessageConst.PROPERTY_DELAY_TIME_LEVEL);
+//        MessageAccessor.clearProperty(msgInner, MessageConst.PROPERTY_DELAY_DATE_TIME);
+        MessageAccessor.clearProperty(msgInner, MessageConst.PROPERTY_REAL_TOPIC);
+        MessageAccessor.clearProperty(msgInner, MessageConst.PROPERTY_REAL_QUEUE_ID);
+
+        msgInner.setPropertiesString(MessageDecoder.messageProperties2String(msgExt.getProperties()));
+
+        return msgInner;
+    }
+
+    public interface LoadMessageCallback {
         void callback(DelayMessageInner msgInner);
     }
 

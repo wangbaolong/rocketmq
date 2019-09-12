@@ -62,6 +62,7 @@ public class DelayMessageManager {
         timingWheel = new TimingWheel(1000,
                 3600,
                 delayMessageStore,
+                delayMessageDispatchStore.getDelayMsgDispatchTimestamp(),
                 new DefaultReputExpiredMessageCallback());
         return maxPhhysicalOffset;
     }
@@ -74,12 +75,20 @@ public class DelayMessageManager {
 
         @Override
         public void callback(DelayMessageInner msg) {
+            log.debug("DefaultReputExpiredMessageCallback callback msg: {} currentTime: {}",
+                    msg.getExpirationMs(), System.currentTimeMillis());
             MessageExtBrokerInner msgInner = delayMessageStore.getMessage((int) (msg.getExpirationMs() / 1000), msg.getQueueffset(), msg.getSize());
-            PutMessageResult result = defaultMessageStore.getCommitLog().putMessage(msgInner);
-            if (result.isOk()) {
-                delayMessageDispatchStore.setDelayMsgDispatchTimestamp(msg.getExpirationMs());
+            if (msgInner != null) {
+                PutMessageResult result = defaultMessageStore.getCommitLog().putMessage(msgInner);
+                if (result.isOk()) {
+                    delayMessageDispatchStore.setDelayMsgDispatchTimestamp(msg.getExpirationMs());
+                } else {
+                    log.error("DelayMessageManager, a message time up, but reput it failed, topic: {} msgId {}",
+                            msgInner.getTopic(), msgInner.getMsgId());
+                }
             } else {
-                // TODO 重试10次 如果不成功则添加到死信队列
+                log.error("DelayMessageManager, a message time up, but get msgInner is null, expirationMs: {} queueffset {} size {}",
+                        msg.getExpirationMs(), msg.getQueueffset(), msg.getSize());
             }
         }
     }
@@ -90,6 +99,7 @@ public class DelayMessageManager {
 
     public void shutdown() {
         // TODO shutdown
+        flushDelayQueueService.shutdown();
         delayMessageStore.shutdown();
         delayMessageDispatchStore.shutdown();
         timingWheel.shutdown();
@@ -120,6 +130,10 @@ public class DelayMessageManager {
                 for (int i = 0; i < retryTimes && !result; i++) {
                     result = entry.getValue().flush(flushConsumeQueueLeastPages);
                 }
+            }
+
+            if (0 == flushConsumeQueueLeastPages) {
+                delayMessageDispatchStore.flush();
             }
 
         }

@@ -40,4 +40,8 @@ public class MessageSysFlag {
     public static boolean isDelayMessage(final int flag) {
         return (flag & DELAY_MESSAGE_TYPE) == DELAY_MESSAGE_TYPE;
     }
+
+    public static int cleanDelayMessage(final int flag) {
+        return (flag & 0xf);
+    }
 }

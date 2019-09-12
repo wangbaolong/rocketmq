@@ -607,12 +607,12 @@ public class CommitLog {
 //                msg.setQueueId(queueId);
 //            }
             boolean isDelay = false;
-            if (msg.getDelayAbsTime() > 0) {
+            if (msg.getDelayDateTime() > 0) {
                 int currentTime = (int) (System.currentTimeMillis() / 1000);
-                if (msg.getDelayAbsTime() > currentTime) {
+                if (msg.getDelayDateTime() > currentTime) {
                     isDelay = true;
                     topic = ScheduleMessageService.SCHEDULE_TOPIC;
-                    queueId = msg.getDelayAbsTime();
+                    queueId = msg.getDelayDateTime();
                 }
             } else if (msg.getDelayTimeLevel() > 0) {
                 isDelay = true;

@@ -145,8 +145,8 @@ public class Message implements Serializable {
     /**
      * @return delayDateTime Unit is seconds
      */
-    public int getDelayAbsTime() {
-        String delayTime = this.getProperty(MessageConst.PROPERTY_DELAY_ABS_TIME);
+    public int getDelayDateTime() {
+        String delayTime = this.getProperty(MessageConst.PROPERTY_DELAY_DATE_TIME);
         if (delayTime != null) {
             try {
                 return Integer.valueOf(delayTime);
@@ -176,7 +176,7 @@ public class Message implements Serializable {
      * @param date The execution date of the message
      */
     public void setDelayDate(Date date) {
-        this.putProperty(MessageConst.PROPERTY_DELAY_ABS_TIME, String.valueOf(date.getTime() / 1000));
+        this.putProperty(MessageConst.PROPERTY_DELAY_DATE_TIME, String.valueOf(date.getTime() / 1000));
     }
 
     public boolean isWaitStoreMsgOK() {

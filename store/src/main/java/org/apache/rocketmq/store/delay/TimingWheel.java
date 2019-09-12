@@ -29,7 +29,11 @@ public class TimingWheel {
     private int preloadThresholdIndex;
     private LoadMessageManager loadMessageManager;
 
-    public TimingWheel(long tickMs, int wheelSize, DelayMessageStore delayMessageStore, ReputExpiredMessageCallback callback) {
+    public TimingWheel(long tickMs,
+                       int wheelSize,
+                       DelayMessageStore delayMessageStore,
+                       long dispatchTimestamp,
+                       ReputExpiredMessageCallback callback) {
         this.tickMs = tickMs;
         this.wheelSize = wheelSize;
         this.interval = tickMs * wheelSize;
@@ -50,7 +54,7 @@ public class TimingWheel {
         calendar.set(Calendar.MILLISECOND, 0);
         startMs = calendar.getTimeInMillis();
         buckets = loadMessageManager.getCurrentBuckets(currentTime, tickMs, wheelSize, currentTime);
-        loadMessageManager.startHandleExpiredMessage(currentTime, callback);
+        loadMessageManager.startHandleExpiredMessage(currentTime, dispatchTimestamp, callback);
         initExeutorService();
     }
 
@@ -89,8 +93,8 @@ public class TimingWheel {
     }
 
     private void addInner(DelayMessageInner msg) {
-        long virtualId = (msg.getExpirationMs() - currentTime) / tickMs;
-        int index = (int) virtualId % wheelSize - 1;
+        long virtualId = (msg.getExpirationMs() - startMs) / tickMs;
+        int index = (int) virtualId % wheelSize;
         TimingWheelBucket bucket = buckets[index];
         bucket.addDelayMessage(msg);
     }
@@ -105,7 +109,6 @@ public class TimingWheel {
             int index = virtualId % wheelSize;
             TimingWheelBucket bucket = buckets[index];
             Iterator<DelayMessageInner> it = bucket.getDelayMessageListAndResetBucket();
-            log.info("this.currentTime:{}", this.currentTime);
             doReputBatchAsync(it);
             // TODO 两个bucket 一个作为缓存
             if (index + 1 == wheelSize) {

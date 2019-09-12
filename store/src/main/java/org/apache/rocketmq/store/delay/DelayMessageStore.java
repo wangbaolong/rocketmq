@@ -8,6 +8,7 @@ import org.apache.rocketmq.store.MessageExtBrokerInner;
 import org.apache.rocketmq.store.config.StorePathConfigHelper;
 
 import java.io.File;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Map;
@@ -39,7 +40,7 @@ public class DelayMessageStore {
     }
 
     public MessageExtBrokerInner getMessage(int queueId, long queueOffset, int size) {
-        String queueName = simpleDateFormat.format(new Date(queueId * 1000));
+        String queueName = simpleDateFormat.format(new Date(queueId * 1000L));
         DelayMessageQueue msgQueue = delayMessageQueueTable.get(queueName);
         if (msgQueue == null) {
             log.info("DelayMessageStore getMessage msgQueue is null {} {} {}", queueId, queueOffset, size);
@@ -48,13 +49,32 @@ public class DelayMessageStore {
         return msgQueue.getMessage(queueOffset, size);
     }
 
-    public void loadDelayMessageFromStoreToTimingWheel(long startMs, DelayMessageQueue.LoadDelayMessageCallback callback) throws Exception {
+    public void loadMessageFromStoreToTimingWheel(long startMs, DelayMessageQueue.LoadMessageCallback callback) throws Exception {
         String queueName = simpleDateFormat.format(new Date(startMs));
         DelayMessageQueue msgQueue = delayMessageQueueTable.get(queueName);
         if (msgQueue != null) {
-            msgQueue.loadDelayMessageFromStore(0, callback);
+            msgQueue.loadMessageFromStore(0, callback);
         } else {
-            log.info("loadDelayMessageFromStoreToTimingWheel DelayMessageQueue is null queueName:{}", queueName);
+            log.info("loadMessageFromStoreToTimingWheel DelayMessageQueue is null queueName:{}", queueName);
+        }
+    }
+
+    public void loadExpiredMessage(long startTimestamp, long endTimestamp,
+                                   DelayMessageQueue.LoadMessageCallback callback) throws ParseException {
+        String startQueueName = simpleDateFormat.format(new Date(startTimestamp));
+        String endQueueName = simpleDateFormat.format(new Date(endTimestamp));
+
+        long startDateTime = simpleDateFormat.parse(startQueueName).getTime();
+        long endDateTime = simpleDateFormat.parse(endQueueName).getTime();
+
+        long hourTimeMillis = 60 * 60 * 1000;
+
+        for( ; startDateTime <= endDateTime; startDateTime += hourTimeMillis) {
+            startQueueName = simpleDateFormat.format(new Date(startDateTime));
+            DelayMessageQueue msgQueue = delayMessageQueueTable.get(startQueueName);
+            if (msgQueue != null) {
+                msgQueue.loadExpiredMessage(0, callback);
+            }
         }
     }
 
